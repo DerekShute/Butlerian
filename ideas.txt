@@ -1,0 +1,194 @@
+
+'user' stack pointer as some kind of indirection from page 0, combined with an index register
+
+timer interrupt multitasking - need to copy out page 0 and 1 (stack) to some other zone and copy in the new task...without modifying stack or page 0
+
+	push the major registers
+	push the flags
+	copy and push the critical page 0 locations if you really must
+	then crazy copy the 256 * 2 bytes out
+	then crazy copy the 256 * 2 bytes in
+		* maybe optimizing for the known stack pointer of the tasks
+
+	TSX instruction, transfer stack pointer to X
+		this goes in some task location or at the base of the stack (which always assumes that it has been pushed)
+
+* Add assembler from the Python assembler
+
+* EhBasic
+
+* vi65.sourceforge.net
+
+* features
+	* mouse
+	* random number generator
+	* timer?
+		* https://mike42.me/blog/2021-11-building-a-hardware-interrupt-controller
+	* firmware OS
+
+https://github.com/mist64/c64rom
+
+https://en.wikipedia.org/wiki/CSG_65CE02
+
+https://github.com/and3rson/deck65
+
+Games
+	* https://github.com/wiebow/tetris.c64
+	* https://gist.github.com/wkjagt/9043907  snake game
+
+# https://github.com/mnaberez/py65/blob/main/py65/monitor.py
+# also https://github.com/tmr4/py65816
+# https://www.masswerk.at/6502/assembler.html
+
+# https://archive.org/details/6502GamesRodnayZaks/6502%20Games-Rodnay%20Zaks-OCR-Print/page/n147/mode/2up
+# https://atariwiki.org/wiki/Wiki.jsp?page=Advanced%206502%20Assembly%20Code%20Examples
+
+https://pypi.org/project/nice65/
+
+# OS ideas
+#
+# high level stack pointer managed as an indirection from page zero
+#   STA (#FE), X or whatever this works out to be
+#    where memory 0xFE-FF is the 16 bit pointer to the stack, wherever that is
+#    DEC (#FE)  to adjust, or use index register
+# =====================================
+#
+
+UART
+    * https://mike42.me/blog/2021-07-adding-a-serial-port-to-my-6502-computer
+    
+OS
+    * http://6502.org/source/kernels/minikernel.txt
+    
+https://github.com/KarolS/millfork
+
+https://wiki.python.org/moin/PyMite
+
+
+u4remastered
+    * Apache license
+https://github.com/MagerValp/u4remastered
+u4remastered/src/patchedgame/subs.s
+
+j_primm_xy:
+	jmp primm_xy
+
+j_primm:
+	jmp primm
+	
+	
+primm_xy:
+	stx console_xpos
+	sty console_ypos
+primm:
+	pla
+	sta @primmaddr
+	pla
+	sta @primmaddr + 1
+@next:
+	inc @primmaddr
+	bne @skip
+	inc @primmaddr + 1
+@skip:
+@primmaddr	:= * + 1
+	lda $ffff
+	beq @done
+	jsr console_out
+	jmp @next
+
+@done:
+	lda @primmaddr + 1
+	pha
+	lda @primmaddr
+	pha
+	rts
+	
+
+console_out:
+	cmp #$8d
+	beq console_newline
+	and #$7f
+	ldx console_xpos
+	cpx #$28					<<< 40 columns
+	bcc @noteol
+	pha
+	jsr console_newline
+	pla
+@noteol:
+	jsr drawchar
+	inc console_xpos
+	rts
+	
+console_newline:
+	lda #$18
+	sta console_xpos
+	inc console_ypos
+	lda console_ypos
+	cmp #$18
+	bcc @notbottom
+	dec console_ypos
+	jsr console_scroll
+@notbottom:
+	rts
+
+console_scroll:
+	ldx #$60
+doscroll:
+	lda bmplineaddr_lo,x
+	clc
+	adc #$c0
+	sta @scrolldst
+	lda bmplineaddr_hi,x
+	adc #$00
+	sta @scrolldst+1
+	lda bmplineaddr_lo+8,x
+	clc
+	adc #$c0
+	sta @scrollsrc
+	lda bmplineaddr_hi+8,x
+	adc #$00
+	sta @scrollsrc+1
+	ldy #$00
+@scroll:
+@scrollsrc = * + 1
+	lda $ffff,y
+@scrolldst = * + 1
+	sta $ffff,y
+
+	iny
+	bpl @scroll
+	txa
+	lsr a
+	lsr a
+	lsr a
+	tay
+	lda chrlineaddr_lo,y
+	sta @scdst
+	lda chrlineaddr_hi,y
+	sta @scdst+1
+	lda chrlineaddr_lo+1,y
+	sta @scsrc
+	lda chrlineaddr_hi+1,y
+	sta @scsrc+1
+	ldy #$18
+@scrollchar:
+@scsrc = * + 1
+	lda $ffff,y
+@scdst = * + 1
+	sta $ffff,y
+
+	iny
+	cpy #$28
+	bne @scrollchar
+	txa
+	clc
+	adc #$08
+	tax
+	cpx #$b8
+	bne doscroll
+	jsr drawhoriz
+	.byte $18, $17, $20, $20, $20, $20, $20, $20
+	.byte $20, $20, $20, $20, $20, $20, $20, $20
+	.byte $20, $20, $ff
+
+	rts
