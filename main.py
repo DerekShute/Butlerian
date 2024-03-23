@@ -23,11 +23,15 @@ class mos6502:
             print(f'MPU at 0x{self._mpu.pc:x} writing NL to UART')
         else:
             print(f'MPU at 0x{self._mpu.pc:x} writing \'{chr(value)}\' (0x{value:x}) to UART')
+        if self._mpu.pc == self.watch_addr:
+            self.running = False
 
     @self_wrapper
     def _getc_uart(self, address):
         assert address
         print(f'MCPU at 0x{self._mpu.pc:x} reading UART')
+        if self._mpu.pc == self.watch_addr:
+            self.running = False
         # TODO: getch equivalent
         c = 0
         return c
@@ -41,28 +45,35 @@ class mos6502:
     def __init__(self):
         self.memory = None
         self._mpu = NMOS6502(memory=self.memory)
-        # TODO : why do we need to capture at this level?
-        self.addrWidth = self._mpu.ADDR_WIDTH
-        self.byteWidth = self._mpu.BYTE_WIDTH
-        self.addrFmt = self._mpu.ADDR_FORMAT
-        self.byteFmt = self._mpu.BYTE_FORMAT
-        self.addrMask = self._mpu.addrMask
-        self.byteMask = self._mpu.byteMask
+        m = ObservableMemory(subject=self.memory, addrWidth=self._mpu.ADDR_WIDTH)
 
-        self.getc_char = 0  # Incoming console character
-
-        m = ObservableMemory(subject=self.memory, addrWidth=self.addrWidth)
         m.subscribe_to_read([0xEFFF], self._getc_uart)
         m.subscribe_to_write([0xEFFF], self._putc_uart)
         m.subscribe_to_write(range(0xE000, 0xE7D0), self._console)  # 80x25 no color for now
         self._mpu.memory = m
         # Eventually treats self._mpu.memory as byte array/list
 
+        self.getc_char = 0  # Incoming console character
+        self.running = False
+        self.watch_addr = -1
+
     def report(self):
         print(self._mpu)
 
     def step(self):
         self._mpu.step()
+        if self._mpu.pc == self.watch_addr:
+            print(f'MPU halted at at 0x{self._mpu.pc:x}')
+            self.running = False
+
+    def run(self):
+        # TODO: catch keyboardinterrupt
+        self.running = True
+        while self.running:
+            self.step()
+
+    def watch(self, addr):
+        self.watch_addr = addr
 
     def load(self, filename, start_addr):
         try:
@@ -100,8 +111,13 @@ def main() -> None:
         match cmd[0]:
             case 'exit' | 'q' | 'quit':
                 break
+            case 'break' | 'b':
+                addr = int(cmd[1], 16)
+                print(f'Setting breakpoint @ 0x{addr:x}')
+                state.watch(addr)
             case 'go' | 'g' | 'run':
-                running = True
+                state.run()
+                state.report()
             case 'load' | 'l':
                 loadpoint = 0x200
                 if len(cmd) > 2:
@@ -113,9 +129,5 @@ def main() -> None:
             case _:
                 print("?command")
 
-        # TODO: catch KeyboardInterrupt
-        while running:
-            state.step()
-    
 if __name__ == "__main__":
     main()
