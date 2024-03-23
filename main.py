@@ -18,11 +18,16 @@ def self_wrapper(method):
 class mos6502:
     @self_wrapper
     def _putc_uart(self, address, value):
-        print(f'MPU at {self._mpu.pc} writing {value} to {address}')
+        assert address
+        if value == 0x0d:
+            print(f'MPU at 0x{self._mpu.pc:x} writing NL to UART')
+        else:
+            print(f'MPU at 0x{self._mpu.pc:x} writing \'{chr(value)}\' (0x{value:x}) to UART')
 
     @self_wrapper
     def _getc_uart(self, address):
-        print(f'MCPU at {self._mpu.pc} reading {address}')
+        assert address
+        print(f'MCPU at 0x{self._mpu.pc:x} reading UART')
         # TODO: getch equivalent
         c = 0
         return c
@@ -86,19 +91,27 @@ def main() -> None:
     
     running = False
 
+    print('Loading default firmware')
+    state.load('data/fw.bin', 0xf000)
+    state._mpu.pc = 0xf000
+
     while True:
         cmd = input('>').split()
         match cmd[0]:
-            case 'exit':
+            case 'exit' | 'q' | 'quit':
                 break
-            case 'go':
+            case 'go' | 'g' | 'run':
                 running = True
-            case 'load':
-                state.load(cmd[1], int(cmd[2], 16))
-                state._mpu.pc = int(cmd[2], 16)
-            case 'step':
+            case 'load' | 'l':
+                loadpoint = 0x200
+                if len(cmd) > 2:
+                    loadpoint = int(cmd[2], 16)
+                state.load(cmd[1], loadpoint)
+            case 'step' | 's':
                 state.step()
                 state.report()
+            case _:
+                print("?command")
 
         # TODO: catch KeyboardInterrupt
         while running:
